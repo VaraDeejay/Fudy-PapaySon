@@ -137,11 +137,21 @@ interface PaymentReceiptSnapshot {
           <button
             type="button"
             class="btn-ghost cashier-bcv-refresh"
-            title="Actualizar tasa BCV"
-            aria-label="Actualizar tasa BCV"
+            title="Sincronizar tasa BCV en línea"
+            aria-label="Sincronizar tasa BCV en línea"
             (click)="refreshBcvRate()"
           >
             <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+          </button>
+
+          <button
+            type="button"
+            class="btn-ghost cashier-bcv-refresh"
+            title="Editar tasa BCV manualmente"
+            aria-label="Editar tasa BCV manualmente"
+            (click)="openManualBcvModal()"
+          >
+            <i class="bi bi-pencil" aria-hidden="true"></i>
           </button>
         </div>
       </header>
@@ -3011,6 +3021,23 @@ export class DashboardPageComponent {
 
   refreshBcvRate(): void {
     void this.state.refreshBcvRate();
+  }
+
+  openManualBcvModal(): void {
+    const current = this.bcvRate();
+    const input = window.prompt(
+      'Ingrese la tasa oficial BCV (ej. 842.21):',
+      current > 0 ? current.toFixed(4) : ''
+    );
+    if (input === null) {
+      return;
+    }
+    const parsed = parseFloat(input.replace(',', '.').trim());
+    if (isNaN(parsed) || parsed <= 0) {
+      alert('Por favor ingrese un valor de tasa numérico válido mayor a 0.');
+      return;
+    }
+    this.state.setManualBcvRate(parsed);
   }
 
   readonly localOrderViews = computed<CashierOrderView[]>(() =>

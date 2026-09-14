@@ -61,8 +61,8 @@ type PaymentVerificationNotification = {
 const SESSION_STORAGE_KEY = 'soulfudy.session.user';
 const PAYMENT_VERIFICATION_ACK_STORAGE_KEY = 'soulfudy.paymentVerification.ack';
 const BACKGROUND_REFRESH_INTERVAL_MS = 120000;
-const BCV_AUTO_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const BCV_AUTO_SYNC_DEBOUNCE_MS = 5 * 60 * 1000;
+const BCV_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const BCV_AUTO_SYNC_DEBOUNCE_MS = 10 * 60 * 1000;
 const BCV_AUTO_SYNC_STORAGE_KEY = 'soulfudy.bcv.last-sync-day';
 const AUTH_SESSION_REVALIDATION_MS = 60_000;
 const NETWORK_OPERATION_TIMEOUT_MS = 30_000;
@@ -2307,16 +2307,12 @@ export class AppStateService {
 
     const force = options?.force ?? false;
 
-    if (!force && this.getLastBcvAutoSyncDay() === this.getTodayDayKey()) {
-      return;
-    }
-
     if (this.bcvAutoSyncPromise) {
       return this.bcvAutoSyncPromise;
     }
 
     const now = Date.now();
-    if (now - this.lastBcvAutoSyncAttemptAt < BCV_AUTO_SYNC_DEBOUNCE_MS) {
+    if (!force && (now - this.lastBcvAutoSyncAttemptAt < BCV_AUTO_SYNC_DEBOUNCE_MS)) {
       return;
     }
 
@@ -2334,37 +2330,65 @@ export class AppStateService {
         }
 
         const currentSettings = this.appSettings();
-        const responseTimestamp = response.fechaActualizacion || new Date().toISOString();
+        const nowIso = new Date().toISOString();
         const sameRate = currentSettings.bcvRate === nextRate;
-        const sameUpdate = currentSettings.updatedAt === responseTimestamp;
 
-        if (!sameRate || !sameUpdate) {
+        if (!sameRate || force) {
           const nextSettings: AppSettings = {
             ...currentSettings,
             id: currentSettings.id || GENERAL_APP_SETTINGS_ID,
             bcvRate: nextRate,
-            createdAt: currentSettings.createdAt ?? responseTimestamp,
-            updatedAt: responseTimestamp
+            createdAt: currentSettings.createdAt ?? nowIso,
+            updatedAt: nowIso
           };
 
           this.appSettings.set(nextSettings);
           this.trackSyncOperation(
             () => this.firebaseData.saveAppSettings(this.mapAppSettingsToDoc(nextSettings)),
-            'Tasa BCV actualizada',
-            'No fue posible actualizar la tasa BCV automaticamente.',
-            { silent: true }
+            `Tasa BCV sincronizada: ${nextRate} Bs`,
+            'No fue posible actualizar la tasa BCV automáticamente.',
+            { silent: !force }
           );
         }
 
         this.setLastBcvAutoSyncDay(this.getTodayDayKey());
       } catch (error) {
-        console.error('No fue posible sincronizar la tasa BCV desde DolarApi.', error);
+        console.error('No fue posible sincronizar la tasa BCV.', error);
+        if (force) {
+          this.syncOverlayVisible.set(true);
+          this.syncOverlayStatus.set('error');
+          this.syncOverlayMessage.set('No fue posible obtener la tasa de los servicios en línea. Puede ingresarla con el botón de editar.');
+          setTimeout(() => {
+            this.syncOverlayVisible.set(false);
+          }, 3500);
+        }
       } finally {
         this.bcvAutoSyncPromise = null;
       }
     })();
 
     return this.bcvAutoSyncPromise;
+  }
+
+  setManualBcvRate(rate: number): void {
+    const currentSettings = this.appSettings();
+    const nextRate = this.normalizeBcvRate(rate);
+    if (nextRate <= 0) {
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const nextSettings: AppSettings = {
+      ...currentSettings,
+      id: currentSettings.id || GENERAL_APP_SETTINGS_ID,
+      bcvRate: nextRate,
+      updatedAt: nowIso
+    };
+    this.appSettings.set(nextSettings);
+    this.trackSyncOperation(
+      () => this.firebaseData.saveAppSettings(this.mapAppSettingsToDoc(nextSettings)),
+      `Tasa BCV fijada manualmente en ${nextRate} Bs`,
+      'No fue posible guardar la tasa manual.'
+    );
   }
 
   private getLastBcvAutoSyncDay(): string {
