@@ -120,6 +120,7 @@ export interface OrderDoc {
   paymentReference?: string;
   paymentAmountUsd?: number;
   paymentAmountBs?: number;
+  bcvRateAtPayment?: number;
   paymentVerificationStatus?: PaymentVerificationStatus;
   paymentRequestedAt?: FirestoreTimestamp;
   paymentVerifiedAt?: FirestoreTimestamp;

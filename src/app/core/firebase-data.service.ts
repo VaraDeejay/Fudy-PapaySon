@@ -415,6 +415,7 @@ export class FirebaseDataService {
     paymentReference?: OrderDoc['paymentReference'];
     paymentAmountUsd?: OrderDoc['paymentAmountUsd'];
     paymentAmountBs?: OrderDoc['paymentAmountBs'];
+    bcvRateAtPayment?: OrderDoc['bcvRateAtPayment'];
   }): Promise<void> {
     const payload: Partial<OrderDoc> = {
       status: input.status,
@@ -440,6 +441,10 @@ export class FirebaseDataService {
 
     if (typeof input.paymentAmountBs === 'number') {
       payload.paymentAmountBs = input.paymentAmountBs;
+    }
+
+    if (typeof input.bcvRateAtPayment === 'number') {
+      payload.bcvRateAtPayment = input.bcvRateAtPayment;
     }
 
     await updateDoc(doc(this.ordersCollection, input.orderId), payload);

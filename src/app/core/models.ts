@@ -127,6 +127,7 @@ export interface Order {
   paymentReference?: string;
   paymentAmountUsd?: number;
   paymentAmountBs?: number;
+  bcvRateAtPayment?: number;
   paymentVerificationStatus?: PaymentVerificationStatus;
   paymentRequestedAt?: string;
   paymentVerifiedAt?: string;

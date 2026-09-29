@@ -35,6 +35,9 @@ export class DolarService {
   private readonly http = inject(HttpClient);
   private readonly apiUrl = 'https://ve.dolarapi.com/v1/dolares';
 
+  /** Cache de tasas históricas indexado por fecha YYYY-MM-DD */
+  private historicalRatesCache: Map<string, number> | null = null;
+
   obtenerOficial(): Observable<VenezuelaDolarRate> {
     return from(this.fetchLatestBcvRate());
   }
@@ -115,6 +118,72 @@ export class DolarService {
     }
 
     throw new Error('No fue posible obtener la tasa BCV de ninguno de los proveedores.');
+  }
+
+  /**
+   * Obtiene la tasa BCV histórica para una fecha específica.
+   * Carga el historial completo una sola vez y lo cachea en memoria.
+   * @param dateStr Fecha ISO o YYYY-MM-DD
+   * @returns La tasa del día, o null si no se encontró
+   */
+  async obtenerTasaHistorica(dateStr: string): Promise<number | null> {
+    const targetDate = dateStr.substring(0, 10); // YYYY-MM-DD
+
+    // Cargar cache si no existe
+    if (!this.historicalRatesCache) {
+      try {
+        const historico = await firstValueFrom(
+          this.http.get<DolarApiHistorical[]>('https://ve.dolarapi.com/v1/historicos/dolares/oficial').pipe(
+            catchError(() => of(null))
+          )
+        );
+        this.historicalRatesCache = new Map<string, number>();
+        if (Array.isArray(historico)) {
+          for (const entry of historico) {
+            if (entry.fecha && typeof entry.promedio === 'number' && entry.promedio > 0) {
+              this.historicalRatesCache.set(entry.fecha, entry.promedio);
+            }
+          }
+        }
+      } catch {
+        return null;
+      }
+    }
+
+    // Buscar tasa exacta del día
+    const exactRate = this.historicalRatesCache.get(targetDate);
+    if (exactRate) {
+      return exactRate;
+    }
+
+    // Fallback: buscar la tasa más cercana anterior (fines de semana / feriados no tienen tasa)
+    const sortedDates = [...this.historicalRatesCache.keys()].sort();
+    let closestRate: number | null = null;
+    for (const date of sortedDates) {
+      if (date <= targetDate) {
+        closestRate = this.historicalRatesCache.get(date) ?? null;
+      } else {
+        break;
+      }
+    }
+
+    return closestRate;
+  }
+
+  /**
+   * Obtiene las tasas históricas para un conjunto de fechas.
+   * Retorna un Map<fechaYYYY-MM-DD, tasa>.
+   */
+  async obtenerTasasHistoricas(dates: string[]): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    // Esto carga el cache una sola vez (la primera llamada a obtenerTasaHistorica)
+    for (const date of [...new Set(dates)]) {
+      const rate = await this.obtenerTasaHistorica(date);
+      if (rate !== null) {
+        result.set(date.substring(0, 10), rate);
+      }
+    }
+    return result;
   }
 }
 

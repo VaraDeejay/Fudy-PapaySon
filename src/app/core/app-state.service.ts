@@ -1019,6 +1019,7 @@ export class AppStateService {
           paymentReference: normalizedReference ?? order.paymentReference,
           paymentAmountUsd: totalUsd,
           paymentAmountBs: totalBs,
+          bcvRateAtPayment: order.bcvRateAtPayment ?? (this.appSettings().bcvRate || undefined),
           updatedAt: now,
           items: updatedItems
         };
@@ -1039,7 +1040,8 @@ export class AppStateService {
             paymentMethod: order.paymentMethod,
             paymentReference: order.paymentReference,
             paymentAmountUsd: order.paymentAmountUsd,
-            paymentAmountBs: order.paymentAmountBs
+            paymentAmountBs: order.paymentAmountBs,
+            bcvRateAtPayment: order.bcvRateAtPayment
           }),
           `Pago registrado para ${order.id}`,
           `No fue posible registrar el pago de la orden ${order.id} en Firebase.`
@@ -2936,6 +2938,7 @@ export class AppStateService {
       paymentReference: order.paymentReference,
       paymentAmountUsd: order.paymentAmountUsd,
       paymentAmountBs: order.paymentAmountBs,
+      bcvRateAtPayment: order.bcvRateAtPayment,
       paymentVerificationStatus: order.paymentVerificationStatus,
       paymentRequestedAt: order.paymentRequestedAt,
       paymentVerifiedAt: order.paymentVerifiedAt,
@@ -3433,6 +3436,10 @@ export class AppStateService {
 
     if (typeof order.paymentAmountBs === 'number') {
       orderDoc.paymentAmountBs = order.paymentAmountBs;
+    }
+
+    if (typeof order.bcvRateAtPayment === 'number') {
+      orderDoc.bcvRateAtPayment = order.bcvRateAtPayment;
     }
 
     if (order.paymentVerificationStatus) {

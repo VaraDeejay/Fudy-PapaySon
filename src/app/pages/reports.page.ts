@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { AppStateService } from '../core/app-state.service';
 import { Order, OrderStatus, PaymentMethod, RestaurantId } from '../core/models';
 import { formatTableNumberLabel } from '../core/table-layouts';
+import { DolarService } from '../services/dolar';
 
 const PAPA_AND_SON_IVA_RATE = 0.16;
 
@@ -1154,6 +1155,7 @@ type PaymentMethodFilter = PaymentMethod | 'SIN_REGISTRO';
 })
 export class ReportsPageComponent {
   private readonly state = inject(AppStateService);
+  private readonly dolarService = inject(DolarService);
   readonly canAccessReportes = computed(() => this.state.canAccessModule('reportes'));
   readonly localKeys = computed<RestaurantId[]>(() => this.state.allowedRestaurantIds());
   readonly isDataLoading = computed(() => this.state.runtimeDataLoading());
@@ -1452,7 +1454,7 @@ export class ReportsPageComponent {
       return;
     }
 
-    const bcv = this.state.appSettings().bcvRate;
+    const bcv = order.bcvRateAtPayment || this.state.appSettings().bcvRate;
     const subtotal = order.items
       .filter((i) => i.status !== 'ANULADO')
       .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
@@ -1720,13 +1722,54 @@ export class ReportsPageComponent {
       .map((item) => item.label);
   }
 
-  printReport(): void {
+  async printReport(): Promise<void> {
     if (typeof window === 'undefined') {
       return;
     }
 
     const { from, to } = this.getNormalizedRange();
-    const bcv = this.state.appSettings().bcvRate || 1;
+    const orders = this.filteredOrders();
+
+    // Determinar la tasa BCV para el reporte:
+    // 1. Si todas las órdenes tienen bcvRateAtPayment, usar el promedio ponderado
+    // 2. Si no, buscar la tasa histórica de la API para las fechas del reporte
+    // 3. Fallback: tasa actual
+    const currentBcv = this.state.appSettings().bcvRate || 1;
+    let bcv = currentBcv;
+
+    const ordersWithRate = orders.filter(o => typeof o.bcvRateAtPayment === 'number' && o.bcvRateAtPayment > 0);
+    if (ordersWithRate.length === orders.length && orders.length > 0) {
+      // Todas las órdenes tienen tasa guardada — usar promedio ponderado por monto
+      const totalSales = ordersWithRate.reduce((s, o) => s + this.orderTotal(o), 0);
+      if (totalSales > 0) {
+        bcv = ordersWithRate.reduce((s, o) => s + this.orderTotal(o) * (o.bcvRateAtPayment!), 0) / totalSales;
+      }
+    } else if (ordersWithRate.length < orders.length) {
+      // Hay órdenes sin tasa guardada — intentar buscar en la API histórica
+      const ordersWithoutRate = orders.filter(o => !o.bcvRateAtPayment || o.bcvRateAtPayment <= 0);
+      const uniqueDates = [...new Set(ordersWithoutRate.map(o => (o.closedAt || o.createdAt).substring(0, 10)))];
+      try {
+        const historicalRates = await this.dolarService.obtenerTasasHistoricas(uniqueDates);
+        // Calcular tasa promedio ponderada combinando órdenes con tasa guardada y las históricas
+        const totalSales = orders.reduce((s, o) => s + this.orderTotal(o), 0);
+        if (totalSales > 0) {
+          let weightedSum = 0;
+          for (const order of orders) {
+            const orderSales = this.orderTotal(order);
+            if (typeof order.bcvRateAtPayment === 'number' && order.bcvRateAtPayment > 0) {
+              weightedSum += orderSales * order.bcvRateAtPayment;
+            } else {
+              const dateKey = (order.closedAt || order.createdAt).substring(0, 10);
+              const rate = historicalRates.get(dateKey) ?? currentBcv;
+              weightedSum += orderSales * rate;
+            }
+          }
+          bcv = weightedSum / totalSales;
+        }
+      } catch {
+        // Si falla la API, usar la tasa actual como fallback
+      }
+    }
     const formatBs = (amount: number) =>
       amount.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
